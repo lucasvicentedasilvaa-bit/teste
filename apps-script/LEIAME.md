@@ -24,17 +24,19 @@ AZF5D60      BAA1458          ← placa tração e carreta (truck: só a placa)
 E os PDFs dos CRTs anexados (nome com o número, ex.: `CRT AR446727795.pdf`).
 Do PDF saem peso bruto (PB), volume (m³), valor, caixas (BULTOS), data e se é peças ou embalagem.
 
-## Instalação (uma vez, na conta programacaomercosul@gmail.com)
+## Instalação (conta que recebe os e-mails: recebimentomercosulritmo@gmail.com)
 
-1. **E-mails no Gmail**: no Outlook, crie a regra *Assunto contém "CRT"* e *tem anexo* →
-   **Redirecionar para** `programacaomercosul@gmail.com`. Use "Redirecionar" e não "Encaminhar", para manter o corpo original e os anexos.
-   Se a empresa bloquear redirecionamento externo, peça ao TI para liberar só esse endereço.
-2. Abra a planilha → **Extensões → Apps Script** → **+ Arquivo** → Script → nome `CRT_RumoNorte` →
-   cole o conteúdo de `CRT_RumoNorte.gs` e salve.
-3. No menu da esquerda, **Serviços (+)** → **Drive API** → Adicionar. É usado para ler o texto do PDF.
-4. Escolha a função `instalarAcionador` e clique em **Executar**. Autorize o acesso ao Gmail, à Planilha e ao Drive.
-   A partir daí, ele roda sozinho a cada 10 minutos.
-5. Para testar na hora: função `processarEmailsCRT` → **Executar**, e confira a aba **Base CRT 2026**.
+O script lê o Gmail da conta em que ele roda. Por isso ele fica na conta **recebimentomercosulritmo@gmail.com**
+e grava na planilha pelo ID (`PLANILHA_ID` no início do script).
+
+1. **Acesso à planilha**: com a conta dona da planilha, clique em **Compartilhar** e adicione `recebimentomercosulritmo@gmail.com` como **Editor**.
+2. **E-mails**: no Outlook, crie a regra *Assunto contém "CRT"* e *tem anexo* → **Redirecionar para** `recebimentomercosulritmo@gmail.com`.
+3. Numa janela anônima (ou só com essa conta logada), entre em **script.google.com** com `recebimentomercosulritmo@gmail.com`
+   → **Novo projeto** → nome `CRT Rumo Norte` → apague o conteúdo e cole `CRT_RumoNorte.gs` → salvar.
+4. No menu da esquerda, **Serviços (+)** → **Drive API** → Adicionar. É usado para ler o texto do PDF.
+5. Escolha a função `processarEmailsCRT` → **Executar** → autorize o acesso ao Gmail, às Planilhas e ao Drive.
+   Confira a aba **Base CRT 2026** e a linha da carga na aba Rumo Norte.
+6. Escolha a função `instalarAcionador` → **Executar**. A partir daí, ele roda sozinho a cada 10 minutos.
 
 ## Conferência
 

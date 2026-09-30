@@ -14,6 +14,8 @@
  */
 
 const CFG = {
+  // planilha Programação Mercosul 2026 (o script roda na conta que recebe os e-mails: recebimentomercosulritmo@gmail.com)
+  PLANILHA_ID: '1zREzGXACFjt6mbnGZ8O4zg11nYr56KhFQwDmww2KnxQ',
   ABA_PROGRAMACAO: 'Rumo Norte',
   ABA_BASE: 'Base CRT 2026',
   // e-mails com anexo PDF de CRT dos últimos dias (o script ignora os que já estão na Base)
@@ -29,7 +31,7 @@ const CFG = {
 
 // ---------------------------------------------------------------- execução
 function processarEmailsCRT() {
-  const ss = SpreadsheetApp.getActive();
+  const ss = SpreadsheetApp.openById(CFG.PLANILHA_ID);
   const base = abaBase_(ss);
   const vistos = new Set(base.getRange(2, 13, Math.max(base.getLastRow() - 1, 1), 1).getValues().flat().filter(String));
   const threads = GmailApp.search(CFG.BUSCA, 0, 50);
