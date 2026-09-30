@@ -76,7 +76,10 @@ function processarMensagem_(ss, base, msg, pdfs) {
 // ---------------------------------------------------------------- leitura do e-mail
 // corpo: "AR446727795  0023 00023628" (um por linha) e "AZF5D60  BAA1458" (tração e carreta)
 function lerCorpo(txt) {
-  const topo = String(txt || '').split(/\n\s*(De|From|Enviado|Sent|-{3,}|_{5,})\s*:?/i)[0];
+  // e-mail respondido: os dados vêm antes do primeiro "De:"; encaminhado: vêm depois do cabeçalho do encaminhamento.
+  // Usa o primeiro trecho que tiver algum CRT.
+  const trechos = String(txt || '').split(/\n\s*(?:De|From|Enviado|Sent|-{3,}[^\n]*|_{5,})\s*:?/i);
+  const topo = trechos.find(t => /\bAR[\s.]*\d{3}[\s.]*\d{3}[\s.]*\d{3}\b/i.test(t)) || trechos[0];
   const pares = [];
   const reP = /\bAR[\s.]*(\d{3})[\s.]*(\d{3})[\s.]*(\d{3})\b[^\S\n]*[-–|;,]?[^\S\n]*(\d{4})[\s.-]*(\d{8})/gi;
   let m;
