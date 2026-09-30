@@ -48,5 +48,7 @@ Do PDF saem peso bruto (PB), volume (m³), valor, caixas (BULTOS), data e se é 
 
 ## Importante
 
-As 4 colunas novas são criadas no fim do cabeçalho da aba Rumo Norte. O Apps Script que alimenta o painel
+As 4 colunas novas são criadas no fim do cabeçalho da aba Rumo Norte **e ficam ocultas**: não aparecem para a equipe,
+mas o script e o painel continuam lendo normalmente. Para vê-las: selecione as colunas vizinhas → botão direito → **Reexibir colunas**.
+Se alguém reexibir, o script não esconde de novo. Para deixar sempre visíveis, mude `OCULTAR_COLS` para `false`. O Apps Script que alimenta o painel
 precisa devolver a aba inteira. Se ele devolver só algumas colunas, inclua essas 4.

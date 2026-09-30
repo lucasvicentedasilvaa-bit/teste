@@ -24,6 +24,7 @@ const CFG = {
   EMBALAGEM: /EMBALAJ|EMBALAGEM|ENVASE|VAC[IÍ]O|RETORNABLE|REUTILIZ|RACKS?\b|CAJONES|PALLETS?\b|CAJAS VAC/i,
   PECAS: /PARTES Y PIEZAS|REPUESTOS|PIEZAS|AUTOPARTES/i,
   COLS_CRT: ['Peso Bruto CRT', 'Volume CRT', 'Valor CRT', 'Caixas CRT'],
+  OCULTAR_COLS: true,                   // as 4 colunas novas ficam ocultas na aba Rumo Norte
 };
 
 // ---------------------------------------------------------------- execução
@@ -129,10 +130,16 @@ function gravaProgramacao_(ss, placa, dataCarga, faturas, crts, tot) {
   const H = vals[hi].map(norm), col = p => H.findIndex(h => h.startsWith(p));
   const cFat = col('fatura'), cCrt = col('crt'), cPl = col('placa'), cData = col('dataprogramacao');
   if (cFat < 0 || cCrt < 0 || cPl < 0 || cData < 0) return 'colunas Fatura/CRT/Placa/Data programação não encontradas';
-  // colunas das somas: cria no fim do cabeçalho se ainda não existirem
+  // colunas das somas: cria no fim do cabeçalho se ainda não existirem, já ocultas
+  // (continuam sendo lidas pelo script e pelo painel; para ver: selecionar as colunas vizinhas → botão direito → Reexibir)
   const cTot = CFG.COLS_CRT.map(nome => {
     let c = H.indexOf(norm(nome));
-    if (c < 0) { c = sh.getLastColumn(); sh.getRange(hi + 1, c + 1).setValue(nome); H[c] = norm(nome); }
+    if (c < 0) {
+      c = sh.getLastColumn();
+      if (c >= sh.getMaxColumns()) sh.insertColumnAfter(sh.getMaxColumns());
+      sh.getRange(hi + 1, c + 1).setValue(nome); H[c] = norm(nome);
+      if (CFG.OCULTAR_COLS) sh.hideColumns(c + 1);
+    }
     return c;
   });
   const alvo = vals.map((r, i) => ({r, i})).slice(hi + 1)
