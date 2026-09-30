@@ -20,7 +20,8 @@ const CFG = {
   BUSCA: 'has:attachment filename:pdf CRT newer_than:7d',
   DIAS_JANELA: 5,                       // diferença máxima entre a data do CRT e a data da programação
   // descrição da mercadoria (campo 11 do CRT): o que é embalagem (não soma nas colunas do tracking)
-  EMBALAGEM: /EMBALAJ|ENVASE|VAC[IÍ]O|RETORNABLE|RACKS?\b|CAJONES|PALLETS?\b|CAJAS VAC/i,
+  // (a embalagem cita as peças: "FACTURA DE EMBALAJE … CONTENIENDO PIEZAS", por isso embalagem é conferida primeiro)
+  EMBALAGEM: /EMBALAJ|EMBALAGEM|ENVASE|VAC[IÍ]O|RETORNABLE|REUTILIZ|RACKS?\b|CAJONES|PALLETS?\b|CAJAS VAC/i,
   PECAS: /PARTES Y PIEZAS|REPUESTOS|PIEZAS|AUTOPARTES/i,
   COLS_CRT: ['Peso Bruto CRT', 'Volume CRT', 'Valor CRT', 'Caixas CRT'],
 };
@@ -52,7 +53,7 @@ function processarMensagem_(ss, base, msg, pdfs) {
     let d = {};
     try { d = lerCRT(textoDoPdf_(a.copyBlob())); } catch (e) { d = {erro: e.message}; }
     d.crt = d.crt || (a.getName().match(/AR\s*\d{9}/i) || [''])[0].replace(/\s/g, '').toUpperCase();
-    d.fatura = d.fatura || (corpo.pares.find(p => p.crt === d.crt) || {}).fatura || '';
+    d.fatura = (corpo.pares.find(p => p.crt === d.crt) || {}).fatura || d.fatura || '';
     return d;
   });
   // fatura/CRT na ordem do corpo do e-mail (é a ordem que a equipe usa); CRTs só do PDF vão no fim
@@ -98,9 +99,11 @@ function lerCRT(t) {
   const crt = (t.match(/\d{0,3}(AR\s?\d{9})/) || [])[1];
   const peso = num((t.match(/PB\s*:?\s*([\d.,]+)/i) || t.match(/Peso bruto[^\d]{0,60}([\d.,]+)/i) || [])[1]);
   const volume = num((t.match(/m\.?\s?cu\.?(?:\s*\/\s*Volumen en m\.?\s?cu\.?)?\s*([\d]+[.,]\d+|\d+)/i) || [])[1]);
-  const valor = num((t.match(/Moeda\s*([\d.,]{4,})/i) || t.match(/Valor\s*\/\s*Valor\.?\s*[^\d]{0,40}([\d.,]{4,})/i) || [])[1]);
+  const mv = t.match(/Moeda\s*(\d[\d.,\s]*?)\s*(?:USD|U\$S|DOLAR|BRL|EUR)/i) || t.match(/Valor\s*\/\s*Valor\.?\s*[^\d]{0,40}(\d[\d.,\s]*?)\s*(?:USD|U\$S)/i);
+  const valor = num(mv ? mv[1].replace(/\s+/g, '') : null);
   const caixas = num((t.match(/(\d+)\s*BULTOS/i) || t.match(/(\d+)\s*(VOLUMES|CAJAS|CAIXAS)/i) || [])[1]);
-  const fat = t.match(/FACTURA COMERCIAL\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i) || t.match(/\bPL\s*(\d{4})[\s-]?(\d{8})/);
+  const fat = t.match(/\bPL\s*(\d{4})[\s-]?(\d{8})/) || t.match(/FACTURA DE EMBALAJE\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i)
+    || t.match(/FACTURA COMERCIAL\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i);
   const dt = t.match(/hace cargo[\s\S]{0,200}?(\d{2})[-\/](\d{2})[-\/](\d{4})/i);
   const desc = (t.match(/BULTOS[^\n]*\n?[^\n]*/i) || [''])[0] + ' ' + (t.match(/CONTENER:?[^\n]*/i) || [''])[0];
   const tipo = CFG.EMBALAGEM.test(desc) ? 'Embalagem' : CFG.PECAS.test(desc) ? 'Peças' : (CFG.EMBALAGEM.test(t) ? 'Embalagem' : 'Peças');
