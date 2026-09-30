@@ -106,14 +106,18 @@ function crtLerPdf(t) {
   const crt = (t.match(/\d{0,3}(AR\s?\d{9})/) || [])[1];
   const peso = num((t.match(/PB\s*:?\s*([\d.,]+)/i) || t.match(/Peso bruto[^\d]{0,60}([\d.,]+)/i) || [])[1]);
   const volume = num((t.match(/m\.?\s?cu\.?(?:\s*\/\s*Volumen en m\.?\s?cu\.?)?\s*([\d]+[.,]\d+|\d+)/i) || [])[1]);
-  const mv = t.match(/Moeda\s*(\d[\d.,\s]*?)\s*(?:USD|U\$S|DOLAR|BRL|EUR)/i)
-    || t.match(/Moeda[\s\S]{0,80}?(\d[\d.,]*[.,]\d{2})(?!\d)/i)
-    || t.match(/Valor\s*\/\s*Valor[\s\S]{0,120}?(\d[\d.,]*[.,]\d{2})(?!\d)/i);
-  const valor = num(mv ? mv[1].replace(/\s+/g, '') : null);
+  // campo 14: o número vem logo depois de "Valor / Valor." (texto do Google) ou colado em "Moeda" (outros leitores de PDF).
+  // Conferido com os centavos do valor por extenso (campo 16, "CON 42/100"): se não bater, fica em branco (evita pegar o frete).
+  const mv = t.match(/Valor\s*\/\s*Valor\.?\s*(\d[\d.,]*)/i) || t.match(/Moeda\s*(\d[\d.,\s]*?)\s*(?:USD|U\$S|DOLAR|BRL|EUR)/i);
+  let valor = num(mv ? mv[1].replace(/\s+/g, '') : null);
+  const cent = t.match(/\bCON\s+(\d{2})\s*\/\s*100/i);
+  if (valor != null && cent && Math.round(valor * 100) % 100 !== +cent[1]) valor = null;
   const caixas = num((t.match(/(\d+)\s*BULTOS/i) || t.match(/(\d+)\s*(VOLUMES|CAJAS|CAIXAS)/i) || [])[1]);
   const fat = t.match(/\bPL\s*(\d{4})[\s-]?(\d{8})/) || t.match(/FACTURA DE EMBALAJE\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i)
     || t.match(/FACTURA COMERCIAL\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i);
-  const dt = t.match(/hace cargo[\s\S]{0,200}?(\d{2})[-\/](\d{2})[-\/](\d{4})/i) || t.match(/\b(\d{2})-(\d{2})-(\d{4})\b/);
+  // campo 7 (data em que o transportador recebe a carga); se vier ilegível (ex.: "29-0-2026"), fica sem data e vale a do outro CRT / do e-mail
+  let dt = t.match(/hace cargo[\s\S]{0,250}?(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/i);
+  if (dt && (+dt[2] < 1 || +dt[2] > 12 || +dt[1] < 1 || +dt[1] > 31)) dt = null;
   const desc = (t.match(/BULTOS[^\n]*\n?[^\n]*/i) || [''])[0] + ' ' + (t.match(/CONTENER:?[^\n]*/i) || [''])[0];
   const tipo = CRT_CFG.EMBALAGEM.test(desc) ? 'Embalagem' : CRT_CFG.PECAS.test(desc) ? 'Peças' : (CRT_CFG.EMBALAGEM.test(t) ? 'Embalagem' : 'Peças');
   return {crt: crt ? crt.replace(/\s/g, '') : '', peso, volume, valor, caixas: caixas != null ? Math.round(caixas) : null,
