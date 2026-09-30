@@ -13,7 +13,7 @@
  * Instalação: veja apps-script/LEIAME.md.
  */
 
-const CFG = {
+const CRT_CFG = {
   // planilha Programação Mercosul 2026 (o script roda na conta que recebe os e-mails: recebimentomercosulritmo@gmail.com)
   PLANILHA_ID: '1zREzGXACFjt6mbnGZ8O4zg11nYr56KhFQwDmww2KnxQ',
   ABA_PROGRAMACAO: 'Rumo Norte',
@@ -31,17 +31,17 @@ const CFG = {
 
 // ---------------------------------------------------------------- execução
 function processarEmailsCRT() {
-  const ss = SpreadsheetApp.openById(CFG.PLANILHA_ID);
-  const base = abaBase_(ss);
+  const ss = SpreadsheetApp.openById(CRT_CFG.PLANILHA_ID);
+  const base = crtAbaBase_(ss);
   const vistos = new Set(base.getRange(2, 13, Math.max(base.getLastRow() - 1, 1), 1).getValues().flat().filter(String));
-  const threads = GmailApp.search(CFG.BUSCA, 0, 50);
+  const threads = GmailApp.search(CRT_CFG.BUSCA, 0, 50);
   for (const th of threads) {
     for (const msg of th.getMessages()) {
       if (vistos.has(msg.getId())) continue;
       const pdfs = msg.getAttachments().filter(a => /\.pdf$/i.test(a.getName()) && /AR\s*\d{9}/i.test(a.getName()));
       if (!pdfs.length) continue;
       try {
-        processarMensagem_(ss, base, msg, pdfs);
+        crtProcessarMensagem_(ss, base, msg, pdfs);
       } catch (e) {
         base.appendRow([new Date(), '', '', '', '', '', '', '', '', '', '', msg.getSubject(), msg.getId(), 'ERRO: ' + e.message]);
       }
@@ -50,11 +50,11 @@ function processarEmailsCRT() {
   }
 }
 
-function processarMensagem_(ss, base, msg, pdfs) {
-  const corpo = lerCorpo(msg.getPlainBody());
+function crtProcessarMensagem_(ss, base, msg, pdfs) {
+  const corpo = crtLerCorpo(msg.getPlainBody());
   const crts = pdfs.map(a => {
     let d = {};
-    try { d = lerCRT(textoDoPdf_(a.copyBlob())); } catch (e) { d = {erro: e.message}; }
+    try { d = crtLerPdf(crtTextoDoPdf_(a.copyBlob())); } catch (e) { d = {erro: e.message}; }
     d.crt = d.crt || (a.getName().match(/AR\s*\d{9}/i) || [''])[0].replace(/\s/g, '').toUpperCase();
     d.fatura = (corpo.pares.find(p => p.crt === d.crt) || {}).fatura || d.fatura || '';
     return d;
@@ -65,9 +65,9 @@ function processarMensagem_(ss, base, msg, pdfs) {
   const dataCarga = crts.map(c => c.data).find(Boolean) || msg.getDate();
   const pecas = crts.filter(c => c.tipo === 'Peças');
   const soma = k => pecas.reduce((s, c) => s + (c[k] || 0), 0);
-  const tot = pecas.length ? [arred(soma('peso'), 3), arred(soma('volume'), 3), arred(soma('valor'), 2), soma('caixas')] : null;
+  const tot = pecas.length ? [crtArred_(soma('peso'), 3), crtArred_(soma('volume'), 3), crtArred_(soma('valor'), 2), soma('caixas')] : null;
 
-  const res = gravaProgramacao_(ss, corpo.tracao, dataCarga,
+  const res = crtGravaProgramacao_(ss, corpo.tracao, dataCarga,
     ordem.map(faturaDe).filter(Boolean).join(' / '), ordem.join(' / '), tot);
 
   crts.forEach(c => base.appendRow([new Date(), corpo.tracao, corpo.carreta, c.crt, c.fatura, c.tipo || '?',
@@ -77,7 +77,7 @@ function processarMensagem_(ss, base, msg, pdfs) {
 
 // ---------------------------------------------------------------- leitura do e-mail
 // corpo: "AR446727795  0023 00023628" (um por linha) e "AZF5D60  BAA1458" (tração e carreta)
-function lerCorpo(txt) {
+function crtLerCorpo(txt) {
   // e-mail respondido: os dados vêm antes do primeiro "De:"; encaminhado: vêm depois do cabeçalho do encaminhamento.
   // Usa o primeiro trecho que tiver algum CRT.
   const trechos = String(txt || '').split(/\n\s*(?:De|From|Enviado|Sent|-{3,}[^\n]*|_{5,})\s*:?/i);
@@ -97,7 +97,7 @@ function lerCorpo(txt) {
 }
 
 // ---------------------------------------------------------------- leitura do PDF do CRT
-function lerCRT(t) {
+function crtLerPdf(t) {
   t = String(t || '').replace(/\r/g, '');
   const num = s => { if (s == null) return null; s = String(s).trim();
     if (/,\d{1,3}$/.test(s) && !/\.\d{1,3}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(/,/g, '');
@@ -112,12 +112,12 @@ function lerCRT(t) {
     || t.match(/FACTURA COMERCIAL\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i);
   const dt = t.match(/hace cargo[\s\S]{0,200}?(\d{2})[-\/](\d{2})[-\/](\d{4})/i);
   const desc = (t.match(/BULTOS[^\n]*\n?[^\n]*/i) || [''])[0] + ' ' + (t.match(/CONTENER:?[^\n]*/i) || [''])[0];
-  const tipo = CFG.EMBALAGEM.test(desc) ? 'Embalagem' : CFG.PECAS.test(desc) ? 'Peças' : (CFG.EMBALAGEM.test(t) ? 'Embalagem' : 'Peças');
+  const tipo = CRT_CFG.EMBALAGEM.test(desc) ? 'Embalagem' : CRT_CFG.PECAS.test(desc) ? 'Peças' : (CRT_CFG.EMBALAGEM.test(t) ? 'Embalagem' : 'Peças');
   return {crt: crt ? crt.replace(/\s/g, '') : '', peso, volume, valor, caixas: caixas != null ? Math.round(caixas) : null,
     fatura: fat ? fat[1] + ' ' + fat[2] : '', data: dt ? new Date(+dt[3], +dt[2] - 1, +dt[1]) : null, tipo};
 }
 
-function textoDoPdf_(blob) {
+function crtTextoDoPdf_(blob) {
   // converte o PDF em Google Docs só para ler o texto (precisa do serviço avançado "Drive API" ativado)
   const f = Drive.Files.create({name: 'tmp_crt_' + Date.now(), mimeType: MimeType.GOOGLE_DOCS}, blob, {ocrLanguage: 'es'});
   try { return DocumentApp.openById(f.id).getBody().getText(); }
@@ -125,30 +125,30 @@ function textoDoPdf_(blob) {
 }
 
 // ---------------------------------------------------------------- gravação na programação
-function gravaProgramacao_(ss, placa, dataCarga, faturas, crts, tot) {
+function crtGravaProgramacao_(ss, placa, dataCarga, faturas, crts, tot) {
   if (!placa) return 'sem placa no e-mail';
-  const sh = ss.getSheetByName(CFG.ABA_PROGRAMACAO);
-  if (!sh) return 'aba ' + CFG.ABA_PROGRAMACAO + ' não encontrada';
+  const sh = ss.getSheetByName(CRT_CFG.ABA_PROGRAMACAO);
+  if (!sh) return 'aba ' + CRT_CFG.ABA_PROGRAMACAO + ' não encontrada';
   const vals = sh.getDataRange().getValues();
-  const hi = vals.slice(0, 30).findIndex(r => r.map(norm).includes('placa') && r.map(norm).includes('status'));
+  const hi = vals.slice(0, 30).findIndex(r => r.map(crtNorm_).includes('placa') && r.map(crtNorm_).includes('status'));
   if (hi < 0) return 'cabeçalho não encontrado';
-  const H = vals[hi].map(norm), col = p => H.findIndex(h => h.startsWith(p));
+  const H = vals[hi].map(crtNorm_), col = p => H.findIndex(h => h.startsWith(p));
   const cFat = col('fatura'), cCrt = col('crt'), cPl = col('placa'), cData = col('dataprogramacao');
   if (cFat < 0 || cCrt < 0 || cPl < 0 || cData < 0) return 'colunas Fatura/CRT/Placa/Data programação não encontradas';
   // colunas das somas: cria no fim do cabeçalho se ainda não existirem, já ocultas
   // (continuam sendo lidas pelo script e pelo painel; para ver: selecionar as colunas vizinhas → botão direito → Reexibir)
-  const cTot = CFG.COLS_CRT.map(nome => {
-    let c = H.indexOf(norm(nome));
+  const cTot = CRT_CFG.COLS_CRT.map(nome => {
+    let c = H.indexOf(crtNorm_(nome));
     if (c < 0) {
       c = sh.getLastColumn();
       if (c >= sh.getMaxColumns()) sh.insertColumnAfter(sh.getMaxColumns());
-      sh.getRange(hi + 1, c + 1).setValue(nome); H[c] = norm(nome);
-      if (CFG.OCULTAR_COLS) sh.hideColumns(c + 1);
+      sh.getRange(hi + 1, c + 1).setValue(nome); H[c] = crtNorm_(nome);
+      if (CRT_CFG.OCULTAR_COLS) sh.hideColumns(c + 1);
     }
     return c;
   });
   const alvo = vals.map((r, i) => ({r, i})).slice(hi + 1)
-    .filter(({r}) => placaN(r[cPl]) === placa && r[cData] instanceof Date && Math.abs(r[cData] - dataCarga) <= CFG.DIAS_JANELA * 864e5)
+    .filter(({r}) => crtPlaca_(r[cPl]) === placa && r[cData] instanceof Date && Math.abs(r[cData] - dataCarga) <= CRT_CFG.DIAS_JANELA * 864e5)
     .sort((a, b) => (!!String(a.r[cFat]).trim() - !!String(b.r[cFat]).trim()) || Math.abs(a.r[cData] - dataCarga) - Math.abs(b.r[cData] - dataCarga))[0];
   if (!alvo) return 'linha não encontrada (placa ' + placa + ')';
   const lin = alvo.i + 1, feito = [];
@@ -156,7 +156,7 @@ function gravaProgramacao_(ss, placa, dataCarga, faturas, crts, tot) {
     if (v === '' || v == null) return;
     const atual = String(vals[alvo.i][c] == null ? '' : vals[alvo.i][c]).trim();
     if (!atual) { sh.getRange(lin, c + 1).setValue(v); feito.push(nome); }
-    else if (docs(atual) !== docs(String(v)) && nome !== 'somas') feito.push(nome + ' já tinha outro valor – conferir');
+    else if (crtDocs_(atual) !== crtDocs_(String(v)) && nome !== 'somas') feito.push(nome + ' já tinha outro valor – conferir');
   };
   poe(cFat, faturas, 'fatura'); poe(cCrt, crts, 'CRT');
   if (tot) tot.forEach((v, k) => poe(cTot[k], v, 'somas'));
@@ -164,19 +164,19 @@ function gravaProgramacao_(ss, placa, dataCarga, faturas, crts, tot) {
 }
 
 // ---------------------------------------------------------------- auxiliares
-function abaBase_(ss) {
-  const sh = ss.getSheetByName(CFG.ABA_BASE) || ss.insertSheet(CFG.ABA_BASE);
+function crtAbaBase_(ss) {
+  const sh = ss.getSheetByName(CRT_CFG.ABA_BASE) || ss.insertSheet(CRT_CFG.ABA_BASE);
   if (!sh.getLastRow()) sh.appendRow(['Processado em', 'Placa tração', 'Placa carreta', 'CRT', 'Fatura', 'Tipo', 'Peso bruto', 'Volume m³',
     'Valor USD', 'Caixas', 'Data do CRT', 'Assunto', 'ID e-mail', 'Resultado']);
   return sh;
 }
-function norm(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
-function placaN(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
-function docs(s) { return (String(s).match(/\d{8,}/g) || []).sort().join(','); }
-function arred(n, d) { const f = Math.pow(10, d); return Math.round(n * f) / f; }
+function crtNorm_(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function crtPlaca_(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+function crtDocs_(s) { return (String(s).match(/\d{8,}/g) || []).sort().join(','); }
+function crtArred_(n, d) { const f = Math.pow(10, d); return Math.round(n * f) / f; }
 
 // cria o acionador de 10 em 10 minutos (rodar uma vez)
-function instalarAcionador() {
+function instalarAcionadorCRT() {
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'processarEmailsCRT').forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('processarEmailsCRT').timeBased().everyMinutes(10).create();
 }

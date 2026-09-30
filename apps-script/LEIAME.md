@@ -36,7 +36,7 @@ e grava na planilha pelo ID (`PLANILHA_ID` no início do script).
 4. No menu da esquerda, **Serviços (+)** → **Drive API** → Adicionar. É usado para ler o texto do PDF.
 5. Escolha a função `processarEmailsCRT` → **Executar** → autorize o acesso ao Gmail, às Planilhas e ao Drive.
    Confira a aba **Base CRT 2026** e a linha da carga na aba Rumo Norte.
-6. Escolha a função `instalarAcionador` → **Executar**. A partir daí, ele roda sozinho a cada 10 minutos.
+6. Escolha a função `instalarAcionadorCRT` → **Executar**. A partir daí, ele roda sozinho a cada 10 minutos.
 
 ## Conferência
 
