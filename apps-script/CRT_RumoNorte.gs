@@ -64,8 +64,9 @@ function crtProcessarMensagem_(ss, base, msg, pdfs) {
   const faturaDe = c => (corpo.pares.find(p => p.crt === c) || crts.find(x => x.crt === c) || {}).fatura || '';
   const dataCarga = crts.map(c => c.data).find(Boolean) || msg.getDate();
   const pecas = crts.filter(c => c.tipo === 'Peças');
-  const soma = k => pecas.reduce((s, c) => s + (c[k] || 0), 0);
-  const tot = pecas.length ? [crtArred_(soma('peso'), 3), crtArred_(soma('volume'), 3), crtArred_(soma('valor'), 2), soma('caixas')] : null;
+  // soma só quando todos os CRTs de peças tiverem o campo lido; senão fica em branco (nunca grava 0 ou soma parcial)
+  const soma = (k, d) => pecas.every(c => typeof c[k] === 'number' && c[k] > 0) ? crtArred_(pecas.reduce((s, c) => s + c[k], 0), d) : '';
+  const tot = pecas.length ? [soma('peso', 3), soma('volume', 3), soma('valor', 2), soma('caixas', 0)] : null;
 
   const res = crtGravaProgramacao_(ss, corpo.tracao, dataCarga,
     ordem.map(faturaDe).filter(Boolean).join(' / '), ordem.join(' / '), tot);
@@ -105,16 +106,18 @@ function crtLerPdf(t) {
   const crt = (t.match(/\d{0,3}(AR\s?\d{9})/) || [])[1];
   const peso = num((t.match(/PB\s*:?\s*([\d.,]+)/i) || t.match(/Peso bruto[^\d]{0,60}([\d.,]+)/i) || [])[1]);
   const volume = num((t.match(/m\.?\s?cu\.?(?:\s*\/\s*Volumen en m\.?\s?cu\.?)?\s*([\d]+[.,]\d+|\d+)/i) || [])[1]);
-  const mv = t.match(/Moeda\s*(\d[\d.,\s]*?)\s*(?:USD|U\$S|DOLAR|BRL|EUR)/i) || t.match(/Valor\s*\/\s*Valor\.?\s*[^\d]{0,40}(\d[\d.,\s]*?)\s*(?:USD|U\$S)/i);
+  const mv = t.match(/Moeda\s*(\d[\d.,\s]*?)\s*(?:USD|U\$S|DOLAR|BRL|EUR)/i)
+    || t.match(/Moeda[\s\S]{0,80}?(\d[\d.,]*[.,]\d{2})(?!\d)/i)
+    || t.match(/Valor\s*\/\s*Valor[\s\S]{0,120}?(\d[\d.,]*[.,]\d{2})(?!\d)/i);
   const valor = num(mv ? mv[1].replace(/\s+/g, '') : null);
   const caixas = num((t.match(/(\d+)\s*BULTOS/i) || t.match(/(\d+)\s*(VOLUMES|CAJAS|CAIXAS)/i) || [])[1]);
   const fat = t.match(/\bPL\s*(\d{4})[\s-]?(\d{8})/) || t.match(/FACTURA DE EMBALAJE\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i)
     || t.match(/FACTURA COMERCIAL\s*N(?:RO|º|°|O)?\.?\s*:?\s*(\d{4})[\s-]?(\d{8})/i);
-  const dt = t.match(/hace cargo[\s\S]{0,200}?(\d{2})[-\/](\d{2})[-\/](\d{4})/i);
+  const dt = t.match(/hace cargo[\s\S]{0,200}?(\d{2})[-\/](\d{2})[-\/](\d{4})/i) || t.match(/\b(\d{2})-(\d{2})-(\d{4})\b/);
   const desc = (t.match(/BULTOS[^\n]*\n?[^\n]*/i) || [''])[0] + ' ' + (t.match(/CONTENER:?[^\n]*/i) || [''])[0];
   const tipo = CRT_CFG.EMBALAGEM.test(desc) ? 'Embalagem' : CRT_CFG.PECAS.test(desc) ? 'Peças' : (CRT_CFG.EMBALAGEM.test(t) ? 'Embalagem' : 'Peças');
   return {crt: crt ? crt.replace(/\s/g, '') : '', peso, volume, valor, caixas: caixas != null ? Math.round(caixas) : null,
-    fatura: fat ? fat[1] + ' ' + fat[2] : '', data: dt ? new Date(+dt[3], +dt[2] - 1, +dt[1]) : null, tipo};
+    fatura: fat ? fat[1] + ' ' + fat[2] : '', data: dt ? new Date(+dt[3], +dt[2] - 1, +dt[1], 12) : null, tipo};
 }
 
 function crtTextoDoPdf_(blob) {
@@ -174,6 +177,19 @@ function crtNorm_(s) { return String(s || '').normalize('NFD').replace(/[\u0300-
 function crtPlaca_(s) { return String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
 function crtDocs_(s) { return (String(s).match(/\d{8,}/g) || []).sort().join(','); }
 function crtArred_(n, d) { const f = Math.pow(10, d); return Math.round(n * f) / f; }
+
+// diagnóstico: mostra no Registro de execução o texto que o Google tira dos PDFs do último e-mail de CRT e o que foi lido
+function crtDiagnostico() {
+  const th = GmailApp.search(CRT_CFG.BUSCA, 0, 1)[0];
+  if (!th) { Logger.log('nenhum e-mail encontrado com: ' + CRT_CFG.BUSCA); return; }
+  const msg = th.getMessages().pop();
+  Logger.log('E-mail: ' + msg.getSubject() + '\nCorpo lido: ' + JSON.stringify(crtLerCorpo(msg.getPlainBody())));
+  msg.getAttachments().filter(a => /\.pdf$/i.test(a.getName())).forEach(a => {
+    const t = crtTextoDoPdf_(a.copyBlob());
+    Logger.log('==== ' + a.getName() + ' ====\n' + t);
+    Logger.log('Lido: ' + JSON.stringify(crtLerPdf(t)));
+  });
+}
 
 // cria o acionador de 10 em 10 minutos (rodar uma vez)
 function instalarAcionadorCRT() {
