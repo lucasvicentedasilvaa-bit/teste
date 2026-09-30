@@ -25,7 +25,7 @@ const CRT_CFG = {
   // (a embalagem cita as peças: "FACTURA DE EMBALAJE … CONTENIENDO PIEZAS", por isso embalagem é conferida primeiro)
   EMBALAGEM: /EMBALAJ|EMBALAGEM|ENVASE|VAC[IÍ]O|RETORNABLE|REUTILIZ|RACKS?\b|CAJONES|PALLETS?\b|CAJAS VAC/i,
   PECAS: /PARTES Y PIEZAS|REPUESTOS|PIEZAS|AUTOPARTES/i,
-  COLS_CRT: ['Peso Bruto CRT', 'Volume CRT', 'Valor CRT', 'Caixas CRT'],
+  COLS_CRT: ['Peso Bruto CRT', 'Volume CRT', 'Valor CRT', 'Caixas CRT', 'Carreta CRT'],
   OCULTAR_COLS: true,                   // as 4 colunas novas ficam ocultas na aba Rumo Norte
 };
 
@@ -69,7 +69,7 @@ function crtProcessarMensagem_(ss, base, msg, pdfs) {
   const tot = pecas.length ? [soma('peso', 3), soma('volume', 3), soma('valor', 2), soma('caixas', 0)] : null;
 
   const res = crtGravaProgramacao_(ss, corpo.tracao, dataCarga,
-    ordem.map(faturaDe).filter(Boolean).join(' / '), ordem.join(' / '), tot);
+    ordem.map(faturaDe).filter(Boolean).join(' / '), ordem.join(' / '), (tot || ['', '', '', '']).concat([corpo.carreta || '']));
 
   crts.forEach(c => base.appendRow([new Date(), corpo.tracao, corpo.carreta, c.crt, c.fatura, c.tipo || '?',
     c.peso || '', c.volume || '', c.valor || '', c.caixas || '', c.data || '', msg.getSubject(), msg.getId(),
