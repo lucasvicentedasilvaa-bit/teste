@@ -285,6 +285,13 @@ async function rasterLogin(env, passos) {
   }
   return { jar, pagina: p };
 }
+// depois do login o portal pede empresa/filial/módulo (tela "Selecionar Empresa e Filial"): Ritmo 2917, filial 0 = Todas, módulo 2 = RISK
+async function rasterEmpresa(env, jar, passos) {
+  const corpo = new URLSearchParams({ CAB_CAACODIGO: env.RASTER_EMPRESA || '2917', CAB_CODIGO: env.RASTER_FILIAL || '0', SAA_CODIGO: env.RASTER_MODULO || '2' });
+  return rasterIr(jar, RASTER_PORTAL + '/Account/SetarEmpresaFilial', { method: 'POST', body: corpo.toString(),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Origin': RASTER_PORTAL, 'Referer': RASTER_PORTAL + '/Account/SelecionarEmpresa' } }, passos);
+}
+const GRID_HTML = '/files/html/operacao/grid_operacional/grid_operacional_veiculos.html';
 // diagnóstico: entra no Raster e mostra o caminho até o grid (sem cookies nem senha).
 // Só buscas simples (indexOf) para caber no limite de processamento do plano Free.
 // padrão → só o login; ?etapa=empresa → código da tela de empresa e listas; ?etapa=arquivos → arquivos do DataSnap (funções do servidor); ?etapa=grid / scripts
@@ -329,6 +336,22 @@ async function rasterDiag(env, etapa) {
       for (const q of ['/Account/EmpresasDoUsuario', '/Account/FiliaisDoUsuario?CAA_CODIGO=2917', '/Account/ModulosDoUsuario?CAA_CODIGO=2917']) {
         try { const r = await rasterIr(jar, RASTER_PORTAL + q, { headers: { 'Accept': 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' } });
           out.listas[q] = { status: r.status, inicio: r.txt.slice(0, 1500) }; } catch (e) { out.listas[q] = { erro: e.message }; }
+      }
+    } else if (etapa === 'grid2') {
+      const pe = await rasterEmpresa(env, jar, passos);
+      out.depoisDaEmpresa = { url: semSegredo(pe.url), status: pe.status, titulo: (pe.txt.match(/<title[^>]*>([^<]{0,100})/i) || [])[1] || '', tamanho: pe.txt.length };
+      const g = await rasterIr(jar, RASTER_PORTAL + GRID_HTML, {}, passos);
+      const t = g.txt;
+      out.paginaGrid = { status: g.status, tamanho: t.length, scripts: [...t.matchAll(/<script[^>]*src="([^"]+)"/gi)].map(x => x[1]).slice(0, 40),
+        chamadas: trechosDe(t, ['Get_Grid_Operacional_Veiculos'], 6).map(x => x) };
+      const i = t.indexOf('Get_Grid_Operacional_Veiculos');
+      if (i >= 0) out.paginaGrid.codigoDaChamada = t.slice(Math.max(0, i - 1500), i + 1500).replace(/\s+/g, ' ');
+      const proprios = out.paginaGrid.scripts.filter(u => /grid_operacional|operacao/i.test(u)).slice(0, 3);
+      out.scriptsDoGrid = [];
+      for (const src of proprios) {
+        try { const r = await rasterIr(jar, new URL(src, RASTER_PORTAL + GRID_HTML).toString()); const k = r.txt.indexOf('Get_Grid_Operacional_Veiculos');
+          out.scriptsDoGrid.push({ src, status: r.status, tamanho: r.txt.length, codigoDaChamada: k >= 0 ? r.txt.slice(Math.max(0, k - 1500), k + 1500).replace(/\s+/g, ' ') : '' });
+        } catch (e) { out.scriptsDoGrid.push({ src, erro: e.message }); }
       }
     } else if (etapa === 'arquivos') {
       out.arquivos = [];
