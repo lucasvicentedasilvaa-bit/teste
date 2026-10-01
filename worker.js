@@ -353,6 +353,30 @@ async function rasterDiag(env, etapa) {
           out.scriptsDoGrid.push({ src, status: r.status, tamanho: r.txt.length, codigoDaChamada: k >= 0 ? r.txt.slice(Math.max(0, k - 1500), k + 1500).replace(/\s+/g, ' ') : '' });
         } catch (e) { out.scriptsDoGrid.push({ src, erro: e.message }); }
       }
+    } else if (etapa === 'grid3') {
+      await rasterEmpresa(env, jar, passos);
+      const g = await rasterIr(jar, RASTER_PORTAL + GRID_HTML, {}, passos), t = g.txt;
+      const win = (txt, palavras, max, a, b) => { const o = []; for (const w of palavras) { let i = 0;
+        while (o.length < max && (i = txt.indexOf(w, i)) >= 0) { o.push(txt.slice(Math.max(0, i - a), i + w.length + b).replace(/\s+/g, ' ')); i += w.length + b; } } return o; };
+      out.paginaGrid = { tamanho: t.length, arquivosJs: [...new Set([...t.matchAll(/["']([^"'\s<>]+\.js(?:\?[^"'\s]*)?)["']/g)].map(x => x[1]))].slice(0, 30),
+        trechos: win(t, ['Get_Grid', 'executeMethod', 'ServerMethods', 'getScript', 'Filtro', 'connectionInfo'], 14, 200, 400) };
+      out.configuracao = [];
+      for (const src of ['/index.js', '/files/js/funcoesgenericas.js']) {
+        try { const r = await rasterIr(jar, RASTER_PORTAL + src);
+          out.configuracao.push({ src, status: r.status, tamanho: r.txt.length, trechos: win(r.txt, ['setConnection', 'setCredentials', 'pathPrefix', 'dscontext', 'restcontext', 'new ServerFunctionExecutor', 'connectionInfo ='], 10, 150, 300) });
+        } catch (e) { out.configuracao.push({ src, erro: e.message }); }
+      }
+      const sf = await rasterIr(jar, RASTER_PORTAL + '/files/serverfunction/ServerFunctions.js'), st = sf.txt;
+      const iN = st.indexOf('Get_Grid_Operacional_Veiculos_Normal'), k = iN >= 0 ? st.lastIndexOf('new ServerFunctionExecutor(', iN) : -1;
+      out.classe = k >= 0 ? (st.slice(k, k + 120).match(/ServerFunctionExecutor\(\s*["']([^"']+)/) || [])[1] || '' : '';
+      out.funcaoNormal = iN >= 0 ? st.slice(Math.max(0, iN - 200), iN + 700).replace(/\s+/g, ' ') : '';
+      out.testes = [];
+      const prefixos = [...new Set(out.configuracao.flatMap(c => (c.trechos || []).map(x => (x.match(/setConnection\([^,]*,[^,]*,\s*["']([^"']*)["']/) || [])[1])).filter(x => x != null).concat(['']))];
+      if (out.classe) for (const pre of prefixos.slice(0, 3)) {
+        const u = RASTER_PORTAL + (pre ? '/' + pre.replace(/^\/|\/$/g, '') : '') + '/datasnap/rest/' + out.classe + '/Get_Grid_Operacional_Veiculos_Limit/';
+        try { const r = await rasterIr(jar, u, { headers: { 'Accept': 'application/json, text/plain, */*' } });
+          out.testes.push({ url: u, status: r.status, inicio: r.txt.slice(0, 300) }); } catch (e) { out.testes.push({ url: u, erro: e.message }); }
+      }
     } else if (etapa === 'arquivos') {
       out.arquivos = [];
       const lista = ['/files/serverfunction/ServerFunctions.js', '/files/serverfunction/connection.js', '/files/serverfunction/ServerFunctionExecutor.js', '/files/serverfunction/ServerFunctionInvoker.js', '/files/js/raster.js'];
