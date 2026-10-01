@@ -7,6 +7,8 @@
 //   PUSH_TOKEN     (secreto) senha da ponte automática Raster → painel (opcional, não usada pela ponte por favorito)
 //   CS_USUARIO     (texto)   usuário do portal CS Rodovias Mercosul
 //   CS_SENHA       (secreto) senha do portal CS Rodovias Mercosul
+//   RASTER_USUARIO (texto)   usuário do portal Raster (localização dos veículos)
+//   RASTER_SENHA   (secreto) senha do portal Raster
 //   CS_SEM_LOGIN   (texto, opcional) "1" libera a consulta à CS sem Zero Trust – só para teste
 
 // ---------------- CS Rodovias Mercosul (Propulsor / JSF) ----------------
@@ -225,6 +227,95 @@ function csFormularios(html) {
     botoes: [...f[0].matchAll(/<button\b[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/button>/gi)].map(b => b[1] + ' = ' + txtHtml(b[2])).slice(0, 10) }));
 }
 
+// ---------------- Raster (localização dos veículos) direto pelo servidor ----------------
+// Login no Keycloak do Raster (auth.rastergr.com.br) com RASTER_USUARIO / RASTER_SENHA, guardando os cookies por domínio.
+const RASTER_PORTAL = 'https://portal.rastergr.com.br';
+function jarAdd(jar, url, res) {
+  const host = new URL(url).host.toLowerCase();
+  let l = [];
+  try { if (typeof res.headers.getSetCookie === 'function') l = res.headers.getSetCookie(); } catch (e) {}
+  if (!l.length) { const v = res.headers.get('set-cookie'); if (v) l = v.split(/,(?=\s*[A-Za-z0-9_\-.]+=)/); }
+  for (const c of l) {
+    const m = c.match(/^\s*([^=;]+)=([^;]*)/); if (!m) continue;
+    const dom = ((c.match(/;\s*domain=\.?([^;]+)/i) || [])[1] || host).trim().toLowerCase();
+    const apaga = /max-age=0\b/i.test(c) || /expires=Thu, 01 Jan 1970/i.test(c);
+    const d = jar[dom] || (jar[dom] = {});
+    if (apaga) delete d[m[1].trim()]; else d[m[1].trim()] = m[2];
+  }
+}
+function jarHeader(jar, url) {
+  const host = new URL(url).host.toLowerCase(), out = [];
+  for (const d in jar) if (host === d || host.endsWith('.' + d)) for (const k in jar[d]) out.push(k + '=' + jar[d][k]);
+  return out.join('; ');
+}
+const semSegredo = u => u.replace(/([?&](code|session_state|session_code|execution|tab_id|state|nonce)=)[^&]+/gi, '$1…');
+async function rasterIr(jar, url, opt, passos) {
+  let u = url, o = opt || {};
+  for (let i = 0; i < 12; i++) {
+    const r = await fetch(u, { method: o.method || 'GET', body: o.body, redirect: 'manual',
+      headers: { 'User-Agent': UA, 'Accept': 'text/html,application/json,*/*', 'Cookie': jarHeader(jar, u), ...(o.headers || {}) } });
+    jarAdd(jar, u, r);
+    if (passos) passos.push({ url: semSegredo(u), metodo: o.method || 'GET', status: r.status });
+    const loc = r.headers.get('location');
+    if (r.status >= 300 && r.status < 400 && loc) { u = new URL(loc, u).toString(); o = {}; continue; }
+    return { url: u, status: r.status, txt: await r.text() };
+  }
+  throw new Error('o Raster redirecionou vezes demais');
+}
+async function rasterLogin(env, passos) {
+  if (!env.RASTER_USUARIO || !env.RASTER_SENHA) throw new Error('cadastre RASTER_USUARIO e RASTER_SENHA em Settings → Variables and Secrets do Worker');
+  const jar = {};
+  let p = await rasterIr(jar, RASTER_PORTAL + '/', {}, passos);
+  if (/auth\.rastergr/i.test(p.url) || /kc-form-login/i.test(p.txt)) {
+    const f = (p.txt.match(/<form[^>]*kc-form-login[\s\S]*?<\/form>/i) || p.txt.match(/<form[\s\S]*?<\/form>/i) || [''])[0];
+    const action = ent((f.match(/action="([^"]+)"/i) || [])[1] || '');
+    if (!action) throw new Error('tela de login do Raster não reconhecida');
+    const campos = new URLSearchParams();
+    for (const m of f.matchAll(/<input[^>]*>/gi)) {
+      const n = (m[0].match(/name="([^"]+)"/i) || [])[1]; if (!n) continue;
+      campos.set(n, ent((m[0].match(/value="([^"]*)"/i) || [])[1] || ''));
+    }
+    campos.set('username', env.RASTER_USUARIO); campos.set('password', env.RASTER_SENHA);
+    p = await rasterIr(jar, new URL(action, p.url).toString(), { method: 'POST', body: campos.toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Origin': new URL(p.url).origin, 'Referer': p.url } }, passos);
+    if (/auth\.rastergr/i.test(p.url)) {
+      const erro = txtHtml((p.txt.match(/<span[^>]*(?:kc-feedback-text|input-error)[^>]*>([\s\S]*?)<\/span>/i) || [])[1] || '');
+      throw new Error('o Raster recusou o login' + (erro ? ': ' + erro : ' (confira usuário e senha)'));
+    }
+  }
+  return { jar, pagina: p };
+}
+// diagnóstico: entra no Raster e mostra o caminho até o grid (sem cookies nem senha)
+async function rasterDiag(env) {
+  const passos = [], out = { passos };
+  try {
+    const { jar, pagina } = await rasterLogin(env, passos);
+    const resumo = (pg) => ({
+      url: semSegredo(pg.url), status: pg.status, titulo: txtHtml((pg.txt.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || ''),
+      formularios: [...pg.txt.matchAll(/<form[^>]*>[\s\S]*?<\/form>/gi)].slice(0, 5).map(m => ({
+        action: semSegredo(ent((m[0].match(/action="([^"]*)"/i) || [])[1] || '')), metodo: (m[0].match(/method="([^"]*)"/i) || [])[1] || 'GET',
+        campos: [...m[0].matchAll(/<(?:input|select)[^>]*name="([^"]+)"[^>]*>/gi)].map(x => x[1]) })),
+      empresas: [...pg.txt.matchAll(/<option[^>]*value="([^"]*)"[^>]*>([\s\S]*?)<\/option>/gi)].slice(0, 15).map(x => x[1] + ' = ' + txtHtml(x[2])),
+      linksGrid: [...new Set([...pg.txt.matchAll(/(?:href|data-url|url)\s*[:=]\s*["']([^"']*(?:Grid|Operacional|Monitor)[^"']*)["']/gi)].map(x => x[1]))].slice(0, 15),
+      trechos: [...pg.txt.matchAll(/.{0,120}(?:Get_Grid_Operacional|datasnap|ServerFunction|\/rest\/|dssession|CAA_CODIGO).{0,160}/gi)].slice(0, 12).map(x => x[0].replace(/\s+/g, ' ')) });
+    out.depoisDoLogin = resumo(pagina);
+    const scripts = [...pagina.txt.matchAll(/<script[^>]*src="([^"]+)"/gi)].map(x => x[1])
+      .filter(u => !/jquery|bootstrap|datadog|leaflet|ckeditor|chosen|moment|select2|font|connector|anchors|base64|connection\.js/i.test(u));
+    out.scripts = [];
+    for (const s of scripts.slice(0, 6)) {
+      try {
+        const r = await rasterIr(jar, new URL(s, pagina.url).toString());
+        out.scripts.push({ src: s, status: r.status, trechos: [...r.txt.matchAll(/.{0,140}(?:Get_Grid_Operacional|datasnap|\/rest\/|dssession|Authorization|Pragma|executeMethod|ServerFunctionExecutor).{0,180}/gi)].slice(0, 8).map(x => x[0].replace(/\s+/g, ' ')) });
+      } catch (e) { out.scripts.push({ src: s, erro: e.message }); }
+    }
+    const link = out.depoisDoLogin.linksGrid[0];
+    if (link) { const g = await rasterIr(jar, new URL(link, pagina.url).toString()); out.paginaGrid = resumo(g); }
+    out.cookies = Object.fromEntries(Object.entries(jar).map(([d, c]) => [d, Object.keys(c)]));
+    out.ok = true;
+  } catch (e) { out.ok = false; out.erro = e.message; }
+  return out;
+}
+
 const JH = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 // versão do painel = resumo do HTML publicado (muda sozinha a cada publicação)
 let _versao = '';
@@ -298,6 +389,13 @@ export default {
         }
         return json({ erro: 'informe ?mic= ou ?placa=' }, 400);
       } catch (e) { return json({ erro: 'CS: ' + e.message }, 502); }
+    }
+
+    if (p === '/api/raster/diag') {
+      if (env.DADOS) { const u = Number(await env.DADOS.get('raster_diag_t')) || 0;
+        if (Date.now() - u < 60000) return json({ erro: 'aguarde 1 minuto entre um diagnóstico e outro' }, 429);
+        await env.DADOS.put('raster_diag_t', String(Date.now()), { expirationTtl: 300 }); }
+      return json(await rasterDiag(env));
     }
 
     if (p === '/api/gr-push') {
