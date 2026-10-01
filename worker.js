@@ -287,7 +287,7 @@ async function rasterLogin(env, passos) {
 }
 // diagnóstico: entra no Raster e mostra o caminho até o grid (sem cookies nem senha).
 // Só buscas simples (indexOf) para caber no limite de processamento do plano Free.
-// padrão → só o login; ?etapa=grid → também a página do grid; ?etapa=scripts → também os scripts do portal
+// padrão → só o login; ?etapa=empresa → código da tela de empresa e listas; ?etapa=arquivos → arquivos do DataSnap (funções do servidor); ?etapa=grid / scripts
 const PALAVRAS_RASTER = ['Get_Grid_Operacional', 'datasnap', 'DataSnap', 'ServerFunctionExecutor', '/rest/', 'dssession', 'CAA_CODIGO', 'executeMethod'];
 function trechosDe(txt, palavras, max) {
   const out = [];
@@ -322,7 +322,26 @@ async function rasterDiag(env, etapa) {
     const { jar, pagina } = await rasterLogin(env, passos);
     out.depoisDoLogin = resumoPagina(pagina);
     out.cookies = Object.fromEntries(Object.entries(jar).map(([d, c]) => [d, Object.keys(c)]));
-    if (etapa === 'scripts') {
+    if (etapa === 'empresa') {
+      // código da própria página (sem as bibliotecas) e as listas de empresa/filial/módulos
+      out.codigoDaPagina = [...pagina.txt.matchAll(/<script(?![^>]*src=)[^>]*>([\s\S]*?)<\/script>/gi)].map(x => x[1].replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ¦ ').slice(0, 14000);
+      out.listas = {};
+      for (const q of ['/Account/EmpresasDoUsuario', '/Account/FiliaisDoUsuario?CAA_CODIGO=2917', '/Account/ModulosDoUsuario?CAA_CODIGO=2917']) {
+        try { const r = await rasterIr(jar, RASTER_PORTAL + q, { headers: { 'Accept': 'application/json, text/javascript, */*; q=0.01', 'X-Requested-With': 'XMLHttpRequest' } });
+          out.listas[q] = { status: r.status, inicio: r.txt.slice(0, 1500) }; } catch (e) { out.listas[q] = { erro: e.message }; }
+      }
+    } else if (etapa === 'arquivos') {
+      out.arquivos = [];
+      const lista = ['/files/serverfunction/ServerFunctions.js', '/files/serverfunction/connection.js', '/files/serverfunction/ServerFunctionExecutor.js', '/files/serverfunction/ServerFunctionInvoker.js', '/files/js/raster.js'];
+      const palavras = ['Get_Grid_Operacional', 'datasnap', 'DataSnap', '/rest', 'dssession', 'Pragma', 'Authorization', 'RiskAccessToken', 'setRequestHeader', 'urlPath', 'getConnectionInfo', 'connectionInfo'];
+      for (const src of lista) {
+        try { const r = await rasterIr(jar, RASTER_PORTAL + src);
+          const t = r.txt, i = t.indexOf('Get_Grid_Operacional_Veiculos');
+          out.arquivos.push({ src, status: r.status, tamanho: t.length, funcaoGrid: i >= 0 ? t.slice(Math.max(0, i - 300), i + 900).replace(/\s+/g, ' ') : '',
+            trechos: trechosDe(t, palavras, 12) });
+        } catch (e) { out.arquivos.push({ src, erro: e.message }); }
+      }
+    } else if (etapa === 'scripts') {
       out.scriptsLidos = [];
       const proprios = out.depoisDoLogin.scripts.filter(u => !/^https?:\/\/(?!portal\.rastergr)/i.test(u) &&
         !/jquery|bootstrap|datadog|leaflet|ckeditor|chosen|moment|select2|font|connector|anchors|base64|connection\.js|jsplumb|geocoder|editor/i.test(u));
