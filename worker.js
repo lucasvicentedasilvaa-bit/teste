@@ -285,37 +285,60 @@ async function rasterLogin(env, passos) {
   }
   return { jar, pagina: p };
 }
-// diagnóstico: entra no Raster e mostra o caminho até o grid (sem cookies nem senha)
-async function rasterDiag(env) {
+// diagnóstico: entra no Raster e mostra o caminho até o grid (sem cookies nem senha).
+// Só buscas simples (indexOf) para caber no limite de processamento do plano Free.
+// padrão → só o login; ?etapa=grid → também a página do grid; ?etapa=scripts → também os scripts do portal
+const PALAVRAS_RASTER = ['Get_Grid_Operacional', 'datasnap', 'DataSnap', 'ServerFunctionExecutor', '/rest/', 'dssession', 'CAA_CODIGO', 'executeMethod'];
+function trechosDe(txt, palavras, max) {
+  const out = [];
+  for (const w of palavras) {
+    let i = 0;
+    while (out.length < (max || 10) && (i = txt.indexOf(w, i)) >= 0) {
+      out.push(txt.slice(Math.max(0, i - 120), i + w.length + 180).replace(/\s+/g, ' '));
+      i += w.length + 180;
+    }
+  }
+  return out;
+}
+function resumoPagina(pg) {
+  const t = pg.txt, out = { url: semSegredo(pg.url), status: pg.status, tamanho: t.length };
+  const ti = t.indexOf('<title'); if (ti >= 0) { const a = t.indexOf('>', ti) + 1, b = t.indexOf('</title', a); out.titulo = t.slice(a, b > a ? b : a + 100).trim().slice(0, 100); }
+  out.formularios = [];
+  let i = 0;
+  while (out.formularios.length < 4 && (i = t.indexOf('<form', i)) >= 0) {
+    const fim = t.indexOf('</form>', i), f = t.slice(i, fim > i ? Math.min(fim, i + 20000) : i + 20000); i += 5;
+    out.formularios.push({ action: semSegredo(ent((f.match(/action="([^"]*)"/i) || [])[1] || '')), metodo: (f.match(/method="([^"]*)"/i) || [])[1] || 'GET',
+      campos: [...f.matchAll(/name="([^"]+)"/gi)].map(x => x[1]).slice(0, 20),
+      opcoes: [...f.matchAll(/<option[^>]*value="([^"]*)"[^>]*>([^<]{0,60})/gi)].slice(0, 10).map(x => x[1] + ' = ' + x[2].trim()) });
+  }
+  out.links = [...new Set([...t.matchAll(/href="([^"#]{2,200})"/gi)].map(x => x[1]).filter(u => /grid|operacional|monitor|rastre/i.test(u)))].slice(0, 15);
+  out.scripts = [...t.matchAll(/<script[^>]*src="([^"]+)"/gi)].map(x => x[1]).slice(0, 80);
+  out.trechos = trechosDe(t, PALAVRAS_RASTER, 10);
+  return out;
+}
+async function rasterDiag(env, etapa) {
   const passos = [], out = { passos };
   try {
     const { jar, pagina } = await rasterLogin(env, passos);
-    const resumo = (pg) => ({
-      url: semSegredo(pg.url), status: pg.status, titulo: txtHtml((pg.txt.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || ''),
-      formularios: [...pg.txt.matchAll(/<form[^>]*>[\s\S]*?<\/form>/gi)].slice(0, 5).map(m => ({
-        action: semSegredo(ent((m[0].match(/action="([^"]*)"/i) || [])[1] || '')), metodo: (m[0].match(/method="([^"]*)"/i) || [])[1] || 'GET',
-        campos: [...m[0].matchAll(/<(?:input|select)[^>]*name="([^"]+)"[^>]*>/gi)].map(x => x[1]) })),
-      empresas: [...pg.txt.matchAll(/<option[^>]*value="([^"]*)"[^>]*>([\s\S]*?)<\/option>/gi)].slice(0, 15).map(x => x[1] + ' = ' + txtHtml(x[2])),
-      linksGrid: [...new Set([...pg.txt.matchAll(/(?:href|data-url|url)\s*[:=]\s*["']([^"']*(?:Grid|Operacional|Monitor)[^"']*)["']/gi)].map(x => x[1]))].slice(0, 15),
-      trechos: [...pg.txt.matchAll(/.{0,120}(?:Get_Grid_Operacional|datasnap|ServerFunction|\/rest\/|dssession|CAA_CODIGO).{0,160}/gi)].slice(0, 12).map(x => x[0].replace(/\s+/g, ' ')) });
-    out.depoisDoLogin = resumo(pagina);
-    const scripts = [...pagina.txt.matchAll(/<script[^>]*src="([^"]+)"/gi)].map(x => x[1])
-      .filter(u => !/jquery|bootstrap|datadog|leaflet|ckeditor|chosen|moment|select2|font|connector|anchors|base64|connection\.js/i.test(u));
-    out.scripts = [];
-    for (const s of scripts.slice(0, 6)) {
-      try {
-        const r = await rasterIr(jar, new URL(s, pagina.url).toString());
-        out.scripts.push({ src: s, status: r.status, trechos: [...r.txt.matchAll(/.{0,140}(?:Get_Grid_Operacional|datasnap|\/rest\/|dssession|Authorization|Pragma|executeMethod|ServerFunctionExecutor).{0,180}/gi)].slice(0, 8).map(x => x[0].replace(/\s+/g, ' ')) });
-      } catch (e) { out.scripts.push({ src: s, erro: e.message }); }
-    }
-    const link = out.depoisDoLogin.linksGrid[0];
-    if (link) { const g = await rasterIr(jar, new URL(link, pagina.url).toString()); out.paginaGrid = resumo(g); }
+    out.depoisDoLogin = resumoPagina(pagina);
     out.cookies = Object.fromEntries(Object.entries(jar).map(([d, c]) => [d, Object.keys(c)]));
+    if (etapa === 'scripts') {
+      out.scriptsLidos = [];
+      const proprios = out.depoisDoLogin.scripts.filter(u => !/^https?:\/\/(?!portal\.rastergr)/i.test(u) &&
+        !/jquery|bootstrap|datadog|leaflet|ckeditor|chosen|moment|select2|font|connector|anchors|base64|connection\.js|jsplumb|geocoder|editor/i.test(u));
+      for (const src of proprios.slice(0, 5)) {
+        try { const r = await rasterIr(jar, new URL(src, pagina.url).toString());
+          out.scriptsLidos.push({ src, status: r.status, tamanho: r.txt.length, trechos: trechosDe(r.txt, PALAVRAS_RASTER.concat(['Pragma', 'Authorization']), 8) });
+        } catch (e) { out.scriptsLidos.push({ src, erro: e.message }); }
+      }
+    } else if (etapa === 'grid') {
+      const link = out.depoisDoLogin.links.find(u => /grid/i.test(u)) || out.depoisDoLogin.links[0];
+      if (link) out.paginaGrid = resumoPagina(await rasterIr(jar, new URL(link, pagina.url).toString()));
+    }
     out.ok = true;
   } catch (e) { out.ok = false; out.erro = e.message; }
   return out;
 }
-
 const JH = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 // versão do painel = resumo do HTML publicado (muda sozinha a cada publicação)
 let _versao = '';
@@ -395,7 +418,7 @@ export default {
       if (env.DADOS) { const u = Number(await env.DADOS.get('raster_diag_t')) || 0;
         if (Date.now() - u < 60000) return json({ erro: 'aguarde 1 minuto entre um diagnóstico e outro' }, 429);
         await env.DADOS.put('raster_diag_t', String(Date.now()), { expirationTtl: 300 }); }
-      return json(await rasterDiag(env));
+      return json(await rasterDiag(env, url.searchParams.get('etapa') || ''));
     }
 
     if (p === '/api/gr-push') {
